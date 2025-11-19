@@ -1,0 +1,18 @@
+path:
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 11
+names:
+  0: Curculionidae
+  1: Delphacidae
+  2: Cicadellidae
+  3: Phlaeothripidae
+  4: Cecidomyiidae
+  5: Hesperiidae
+  6: Crambidae
+  7: Chloropidae
+  8: Ephydridae
+  9: Noctuidae
+  10: Thripidae

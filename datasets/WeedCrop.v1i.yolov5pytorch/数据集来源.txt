@@ -1,0 +1,6 @@
+参考链接：
+https://www.kaggle.com/code/amiranmkrtchyan/yolov8x-weed-crop-detection
+
+商品本身免费，仅收取信息搜集费用
+
+

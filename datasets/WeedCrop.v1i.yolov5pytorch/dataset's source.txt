@@ -1,0 +1,4 @@
+Reference link:
+https://www.kaggle.com/code/amiranmkrtchyan/yolov8x-weed-crop-detection
+
+The product itself is free, and only the information collection fee is charged.

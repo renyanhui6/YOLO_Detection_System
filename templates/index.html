@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO目标检测系统</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+            background: linear-gradient(135deg, #e8d5ff 0%, #b8e6ff 100%);
+            min-height: 100vh;
+            color: #333;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(circle at 20% 80%, rgba(255, 215, 0, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 215, 0, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background: rgba(248, 250, 252, 0.9);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(139, 69, 19, 0.08);
+            backdrop-filter: blur(10px);
+            margin-top: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(216, 180, 254, 0.3);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #ddd6fe, #c7d2fe);
+            border-radius: 15px;
+            color: #4c1d95;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(196, 181, 253, 0.4);
+        }
+
+        .header::before {
+            content: '🏮';
+            position: absolute;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 2rem;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        .header::after {
+            content: '🏮';
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 2rem;
+            animation: float 3s ease-in-out infinite reverse;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            background: linear-gradient(45deg, #ffd700, #ffed4e, #ffd700);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(-50%) rotate(0deg); }
+            50% { transform: translateY(-60%) rotate(10deg); }
+        }
+
+        .nav-tabs {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 30px;
+            background: rgba(233, 213, 255, 0.4);
+            border-radius: 15px;
+            padding: 5px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(196, 181, 253, 0.3);
+        }
+
+        .nav-tab {
+            padding: 12px 24px;
+            margin: 0 5px;
+            background: transparent;
+            color: #6b46c1;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 16px;
+            font-weight: 500;
+            position: relative;
+        }
+
+        .nav-tab.active {
+            background: rgba(196, 181, 253, 0.6);
+            color: #4c1d95;
+            box-shadow: 0 4px 15px rgba(139, 92, 246, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .nav-tab:hover:not(.active) {
+            background: rgba(216, 180, 254, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .control-panel {
+            background: rgba(248, 250, 252, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(139, 69, 19, 0.08);
+            height: fit-content;
+            border: 1px solid rgba(216, 180, 254, 0.3);
+            position: relative;
+            backdrop-filter: blur(10px);
+        }
+
+        .control-panel::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, #dc2626, #ffd700, #dc2626);
+            border-radius: 17px;
+            z-index: -1;
+            opacity: 0.3;
+        }
+
+        .image-display {
+            background: rgba(248, 250, 252, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(139, 69, 19, 0.08);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(216, 180, 254, 0.3);
+        }
+
+        .section {
+            margin-bottom: 25px;
+        }
+
+        .section h3 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #4a5568;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #a78bfa, #c084fc);
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 215, 0, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn-primary:hover::before {
+            left: 100%;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(167, 139, 250, 0.4);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #e9d5ff, #ddd6fe);
+            color: #6b46c1;
+            border: 1px solid rgba(196, 181, 253, 0.4);
+        }
+
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, #ddd6fe, #c4b5fd);
+            transform: translateY(-1px);
+            box-shadow: 0 3px 10px rgba(233, 213, 255, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .file-upload {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+
+        .file-upload input[type=file] {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        .file-upload-label {
+            display: block;
+            padding: 20px;
+            border: 2px dashed #cbd5e0;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #f7fafc;
+        }
+
+        .file-upload-label:hover {
+            border-color: #dc2626;
+            background: #fef2f2;
+        }
+
+        .image-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .image-preview {
+            max-width: 100%;
+            max-height: 500px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .image-info {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .detection-results {
+            background: #f7fafc;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .detection-item {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border-left: 4px solid #dc2626;
+            position: relative;
+        }
+
+        .detection-item::before {
+            content: '🎯';
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            opacity: 0.3;
+        }
+
+        .confidence-bar {
+            width: 100%;
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #dc2626, #b91c1c);
+            transition: width 0.3s ease;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #dc2626;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .alert-success {
+            background: #f0fff4;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+
+        .alert-error {
+            background: #fed7d7;
+            color: #742a2a;
+            border: 1px solid #feb2b2;
+        }
+
+        .history-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .history-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #e2e8f0;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .history-item:hover {
+            background: #f7fafc;
+        }
+
+        .history-thumbnail {
+            width: 60px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-right: 15px;
+        }
+
+        .history-info {
+            flex: 1;
+        }
+
+        .history-time {
+            font-size: 12px;
+            color: #718096;
+        }
+
+        .history-count {
+            background: linear-gradient(135deg, #dc2626, #b91c1c);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            box-shadow: 0 2px 4px rgba(220, 38, 38, 0.3);
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-eye"></i> 智能视觉检测系统</h1>
+            <p>基于深度学习的实时目标检测与识别平台 🇨🇳</p>
+        </div>
+
+        <!-- 导航标签页 -->
+        <div class="nav-tabs">
+            <button class="nav-tab active" onclick="switchTab('image')">
+                <i class="fas fa-image"></i> 图片检测
+            </button>
+            <button class="nav-tab" onclick="switchTab('video')">
+                <i class="fas fa-video"></i> 视频检测
+            </button>
+            <button class="nav-tab" onclick="switchTab('history')">
+                <i class="fas fa-history"></i> 检测历史
+            </button>
+        </div>
+
+        <!-- 图片检测页面 -->
+        <div id="imageTab" class="tab-content active">
+            <div class="main-content">
+            <!-- 控制面板 -->
+            <div class="control-panel">
+                <div class="section">
+                    <h3><i class="fas fa-upload"></i> 图像上传</h3>
+                    <div class="file-upload">
+                        <input type="file" id="imageInput" accept="image/*">
+                        <label for="imageInput" class="file-upload-label">
+                            <i class="fas fa-cloud-upload-alt fa-2x" style="color: #cbd5e0; margin-bottom: 10px;"></i>
+                            <div>点击选择图像文件</div>
+                            <small style="color: #718096;">支持 JPG, PNG, GIF, BMP, TIFF, WebP</small>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3><i class="fas fa-cog"></i> 模型设置</h3>
+                    <div class="form-group">
+                        <label for="modelSelect">选择模型</label>
+                        <select id="modelSelect" class="form-control">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3><i class="fas fa-sliders-h"></i> 检测参数</h3>
+                    <div class="form-group">
+                        <label for="confThreshold">置信度阈值: <span id="confValue">0.25</span></label>
+                        <input type="range" id="confThreshold" class="form-control" min="0.1" max="0.9" step="0.05" value="0.25">
+                    </div>
+                    <div class="form-group">
+                        <label for="iouThreshold">IoU阈值: <span id="iouValue">0.45</span></label>
+                        <input type="range" id="iouThreshold" class="form-control" min="0.1" max="0.9" step="0.05" value="0.45">
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3><i class="fas fa-play"></i> 操作</h3>
+                    <button id="detectBtn" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" disabled>
+                        <i class="fas fa-search"></i> 开始检测
+                    </button>
+                    <button id="clearBtn" class="btn btn-secondary" style="width: 100%;">
+                        <i class="fas fa-trash"></i> 清除结果
+                    </button>
+                </div>
+            </div>
+
+            <!-- 图像显示区域 -->
+            <div class="image-display">
+                <div class="alert alert-success" id="successAlert"></div>
+                <div class="alert alert-error" id="errorAlert"></div>
+                
+                <div class="loading" id="loadingDiv">
+                    <div class="spinner"></div>
+                    <div>正在处理图像，请稍候...</div>
+                </div>
+
+                <div class="image-container" id="imageContainer">
+                    <div style="text-align: center; padding: 60px; color: #718096;">
+                        <i class="fas fa-image fa-4x" style="margin-bottom: 20px;"></i>
+                        <div>请选择图像文件开始检测</div>
+                    </div>
+                </div>
+
+                <div class="image-info" id="imageInfo" style="display: none;"></div>
+                <div class="detection-results" id="detectionResults" style="display: none;"></div>
+            </div>
+        </div>
+        </div>
+
+        <!-- 视频检测页面 -->
+        <div id="videoTab" class="tab-content">
+            <div class="main-content">
+                <!-- 控制面板 -->
+                <div class="control-panel">
+                    <div class="section">
+                        <h3><i class="fas fa-video"></i> 视频上传</h3>
+                        <div class="file-upload">
+                            <input type="file" id="videoInput" accept="video/*">
+                            <label for="videoInput" class="file-upload-label">
+                                <i class="fas fa-film fa-2x" style="color: #cbd5e0; margin-bottom: 10px;"></i>
+                                <div>点击选择视频文件</div>
+                                <small style="color: #718096;">支持 MP4, AVI, MOV, MKV</small>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h3><i class="fas fa-cog"></i> 模型设置</h3>
+                        <div class="form-group">
+                            <label for="videoModelSelect">选择模型</label>
+                            <select id="videoModelSelect" class="form-control">
+                                <option value="">加载中...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h3><i class="fas fa-sliders-h"></i> 检测参数</h3>
+                        <div class="form-group">
+                            <label for="videoConfThreshold">置信度阈值: <span id="videoConfValue">0.25</span></label>
+                            <input type="range" id="videoConfThreshold" class="form-control" min="0.1" max="0.9" step="0.05" value="0.25">
+                        </div>
+                        <div class="form-group">
+                            <label for="videoIouThreshold">IoU阈值: <span id="videoIouValue">0.45</span></label>
+                            <input type="range" id="videoIouThreshold" class="form-control" min="0.1" max="0.9" step="0.05" value="0.45">
+                        </div>
+                        <div class="form-group">
+                            <label for="frameSkip">帧间隔: <span id="frameSkipValue">1</span></label>
+                            <input type="range" id="frameSkip" class="form-control" min="1" max="10" step="1" value="1">
+                            <small style="color: #718096;">每隔N帧检测一次，提高处理速度</small>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h3><i class="fas fa-play"></i> 操作</h3>
+                        <button id="videoDetectBtn" class="btn btn-primary" style="width: 100%; margin-bottom: 10px;" disabled>
+                            <i class="fas fa-play"></i> 开始视频检测
+                        </button>
+                        <button id="videoClearBtn" class="btn btn-secondary" style="width: 100%;">
+                            <i class="fas fa-trash"></i> 清除结果
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 视频显示区域 -->
+                <div class="image-display">
+                    <div class="alert alert-success" id="videoSuccessAlert"></div>
+                    <div class="alert alert-error" id="videoErrorAlert"></div>
+                    
+                    <div class="loading" id="videoLoadingDiv">
+                        <div class="spinner"></div>
+                        <div>正在处理视频，请稍候...</div>
+                    </div>
+
+                    <div class="image-container" id="videoContainer">
+                        <div style="text-align: center; padding: 60px; color: #718096;">
+                            <i class="fas fa-video fa-4x" style="margin-bottom: 20px;"></i>
+                            <div>请选择视频文件开始检测</div>
+                        </div>
+                    </div>
+
+                    <div class="image-info" id="videoInfo" style="display: none;"></div>
+                    <div class="detection-results" id="videoResults" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 检测历史页面 -->
+        <div id="historyTab" class="tab-content">
+            <div class="history-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h3><i class="fas fa-history"></i> 检测历史记录</h3>
+                    <button id="clearHistoryBtn" class="btn btn-secondary">
+                        <i class="fas fa-trash-alt"></i> 清空历史
+                    </button>
+                </div>
+                
+                <div class="history-filters" style="margin-bottom: 20px; display: flex; gap: 15px; align-items: center;">
+                    <select id="historyTypeFilter" class="form-control" style="width: auto;">
+                        <option value="all">全部类型</option>
+                        <option value="image">图片检测</option>
+                        <option value="video">视频检测</option>
+                    </select>
+                    <input type="date" id="historyDateFilter" class="form-control" style="width: auto;">
+                    <button id="refreshHistoryBtn" class="btn btn-secondary">
+                        <i class="fas fa-sync-alt"></i> 刷新
+                    </button>
+                </div>
+                
+                <div id="historyList">
+                    <div style="text-align: center; padding: 40px; color: #718096;">
+                        <i class="fas fa-clock fa-2x" style="margin-bottom: 15px;"></i>
+                        <div>暂无检测历史</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentImage = null;
+        let currentVideo = null;
+        let availableModels = [];
+        let currentTab = 'image';
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadModels();
+            loadHistory();
+            setupEventListeners();
+        });
+
+        // 标签页切换
+        function switchTab(tabName) {
+            // 隐藏所有标签页内容
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 移除所有标签页按钮的激活状态
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 显示选中的标签页
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            event.target.classList.add('active');
+            
+            currentTab = tabName;
+            
+            // 如果切换到历史页面，刷新历史记录
+            if (tabName === 'history') {
+                loadHistory();
+            }
+        }
+
+        // 设置事件监听器
+        function setupEventListeners() {
+            // 图片检测相关
+            document.getElementById('imageInput').addEventListener('change', handleFileSelect);
+            document.getElementById('detectBtn').addEventListener('click', startDetection);
+            document.getElementById('clearBtn').addEventListener('click', clearResults);
+            
+            // 视频检测相关
+            document.getElementById('videoInput').addEventListener('change', handleVideoSelect);
+            document.getElementById('videoDetectBtn').addEventListener('click', startVideoDetection);
+            document.getElementById('videoClearBtn').addEventListener('click', clearVideoResults);
+            
+            // 历史记录相关
+            document.getElementById('clearHistoryBtn').addEventListener('click', clearHistory);
+            document.getElementById('refreshHistoryBtn').addEventListener('click', loadHistory);
+            
+            // 图片检测参数滑块
+            document.getElementById('confThreshold').addEventListener('input', function() {
+                document.getElementById('confValue').textContent = this.value;
+            });
+            
+            document.getElementById('iouThreshold').addEventListener('input', function() {
+                document.getElementById('iouValue').textContent = this.value;
+            });
+            
+            // 视频检测参数滑块
+            document.getElementById('videoConfThreshold').addEventListener('input', function() {
+                document.getElementById('videoConfValue').textContent = this.value;
+            });
+            
+            document.getElementById('videoIouThreshold').addEventListener('input', function() {
+                document.getElementById('videoIouValue').textContent = this.value;
+            });
+            
+            document.getElementById('frameSkip').addEventListener('input', function() {
+                document.getElementById('frameSkipValue').textContent = this.value;
+            });
+        }
+
+        // 加载可用模型
+        async function loadModels() {
+            try {
+                const response = await fetch('/api/models');
+                const models = await response.json();
+                availableModels = models;
+                
+                // 更新图片检测模型选择器
+                const imageSelect = document.getElementById('modelSelect');
+                imageSelect.innerHTML = '';
+                
+                // 更新视频检测模型选择器
+                const videoSelect = document.getElementById('videoModelSelect');
+                videoSelect.innerHTML = '';
+                
+                if (models.length === 0) {
+                    const noModelOption = '<option value="">没有找到可用模型</option>';
+                    imageSelect.innerHTML = noModelOption;
+                    videoSelect.innerHTML = noModelOption;
+                } else {
+                    models.forEach(model => {
+                        const optionText = `${model.name} (${model.size})`;
+                        
+                        // 图片检测选项
+                        const imageOption = document.createElement('option');
+                        imageOption.value = model.path;
+                        imageOption.textContent = optionText;
+                        imageSelect.appendChild(imageOption);
+                        
+                        // 视频检测选项
+                        const videoOption = document.createElement('option');
+                        videoOption.value = model.path;
+                        videoOption.textContent = optionText;
+                        videoSelect.appendChild(videoOption);
+                    });
+                }
+            } catch (error) {
+                showError('加载模型列表失败: ' + error.message);
+            }
+        }
+
+        // 处理文件选择
+        async function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                showLoading(true);
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    currentImage = result.filename;
+                    displayImage(result.filename, result.image_info);
+                    document.getElementById('detectBtn').disabled = false;
+                    showSuccess('图像上传成功');
+                } else {
+                    showError(result.error);
+                }
+            } catch (error) {
+                showError('上传失败: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // 显示图像
+        function displayImage(filename, imageInfo) {
+            const container = document.getElementById('imageContainer');
+            container.innerHTML = `
+                <img src="/static/uploads/${filename}" alt="上传的图像" class="image-preview">
+            `;
+            
+            const infoDiv = document.getElementById('imageInfo');
+            infoDiv.style.display = 'block';
+            infoDiv.innerHTML = `
+                <h4><i class="fas fa-info-circle"></i> 图像信息</h4>
+                <p><strong>尺寸:</strong> ${imageInfo.width} × ${imageInfo.height} 像素</p>
+                <p><strong>格式:</strong> ${imageInfo.format}</p>
+                <p><strong>文件名:</strong> ${filename}</p>
+            `;
+        }
+
+        // 开始检测
+        async function startDetection() {
+            if (!currentImage) {
+                showError('请先选择图像文件');
+                return;
+            }
+            
+            const modelPath = document.getElementById('modelSelect').value;
+            if (!modelPath) {
+                showError('请选择检测模型');
+                return;
+            }
+            
+            const confThreshold = parseFloat(document.getElementById('confThreshold').value);
+            const iouThreshold = parseFloat(document.getElementById('iouThreshold').value);
+            
+            try {
+                showLoading(true);
+                document.getElementById('detectBtn').disabled = true;
+                
+                const response = await fetch('/api/detect', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filename: currentImage,
+                        model_path: modelPath,
+                        conf_threshold: confThreshold,
+                        iou_threshold: iouThreshold
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayResults(result);
+                    loadHistory(); // 刷新历史记录
+                    showSuccess(`检测完成！发现 ${result.detection_count} 个目标`);
+                } else {
+                    showError(result.error);
+                }
+            } catch (error) {
+                showError('检测失败: ' + error.message);
+            } finally {
+                showLoading(false);
+                document.getElementById('detectBtn').disabled = false;
+            }
+        }
+
+        // 显示检测结果
+        function displayResults(result) {
+            // 显示结果图像
+            const container = document.getElementById('imageContainer');
+            container.innerHTML = `
+                <img src="/static/results/${result.result_image}" alt="检测结果" class="image-preview">
+            `;
+            
+            // 显示检测详情
+            const resultsDiv = document.getElementById('detectionResults');
+            resultsDiv.style.display = 'block';
+            
+            let html = `<h4><i class="fas fa-bullseye"></i> 检测结果 (${result.detection_count} 个目标)</h4>`;
+            
+            if (result.detections.length > 0) {
+                result.detections.forEach((detection, index) => {
+                    const confidence = (detection.confidence * 100).toFixed(1);
+                    html += `
+                        <div class="detection-item">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <strong>${detection.class_name}</strong>
+                                <span style="color: #667eea;">${confidence}%</span>
+                            </div>
+                            <div class="confidence-bar">
+                                <div class="confidence-fill" style="width: ${confidence}%"></div>
+                            </div>
+                        </div>
+                    `;
+                });
+            } else {
+                html += '<p style="text-align: center; color: #718096; padding: 20px;">未检测到任何目标</p>';
+            }
+            
+            resultsDiv.innerHTML = html;
+        }
+
+        // 处理视频选择
+        async function handleVideoSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                showVideoLoading(true);
+                // 这里可以添加视频上传逻辑
+                currentVideo = file.name;
+                displayVideo(file);
+                document.getElementById('videoDetectBtn').disabled = false;
+                showVideoSuccess('视频上传成功');
+            } catch (error) {
+                showVideoError('上传失败: ' + error.message);
+            } finally {
+                showVideoLoading(false);
+            }
+        }
+
+        // 显示视频
+        function displayVideo(file) {
+            const container = document.getElementById('videoContainer');
+            const videoUrl = URL.createObjectURL(file);
+            container.innerHTML = `
+                <video controls class="image-preview" style="max-width: 100%; max-height: 400px;">
+                    <source src="${videoUrl}" type="${file.type}">
+                    您的浏览器不支持视频播放。
+                </video>
+            `;
+            
+            const infoDiv = document.getElementById('videoInfo');
+            infoDiv.style.display = 'block';
+            infoDiv.innerHTML = `
+                <h4><i class="fas fa-info-circle"></i> 视频信息</h4>
+                <p><strong>文件名:</strong> ${file.name}</p>
+                <p><strong>大小:</strong> ${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                <p><strong>类型:</strong> ${file.type}</p>
+            `;
+        }
+
+        // 开始视频检测
+        async function startVideoDetection() {
+            if (!currentVideo) {
+                showVideoError('请先选择视频文件');
+                return;
+            }
+            
+            const modelPath = document.getElementById('videoModelSelect').value;
+            if (!modelPath) {
+                showVideoError('请选择检测模型');
+                return;
+            }
+            
+            showVideoLoading(true);
+            document.getElementById('videoDetectBtn').disabled = true;
+            
+            // 模拟视频检测过程
+            setTimeout(() => {
+                showVideoLoading(false);
+                document.getElementById('videoDetectBtn').disabled = false;
+                showVideoSuccess('视频检测完成！（演示功能）');
+                
+                // 显示模拟结果
+                const resultsDiv = document.getElementById('videoResults');
+                resultsDiv.style.display = 'block';
+                resultsDiv.innerHTML = `
+                    <h4><i class="fas fa-video"></i> 视频检测结果</h4>
+                    <p style="text-align: center; color: #718096; padding: 20px;">
+                        视频检测功能正在开发中...<br>
+                        <small>当前为演示界面</small>
+                    </p>
+                `;
+            }, 3000);
+        }
+
+        // 清除视频结果
+        function clearVideoResults() {
+            document.getElementById('videoContainer').innerHTML = `
+                <div style="text-align: center; padding: 60px; color: #718096;">
+                    <i class="fas fa-video fa-4x" style="margin-bottom: 20px;"></i>
+                    <div>请选择视频文件开始检测</div>
+                </div>
+            `;
+            document.getElementById('videoInfo').style.display = 'none';
+            document.getElementById('videoResults').style.display = 'none';
+            document.getElementById('videoInput').value = '';
+            document.getElementById('videoDetectBtn').disabled = true;
+            currentVideo = null;
+            hideVideoAlerts();
+        }
+
+        // 清除结果
+        function clearResults() {
+            document.getElementById('imageContainer').innerHTML = `
+                <div style="text-align: center; padding: 60px; color: #718096;">
+                    <i class="fas fa-image fa-4x" style="margin-bottom: 20px;"></i>
+                    <div>请选择图像文件开始检测</div>
+                </div>
+            `;
+            document.getElementById('imageInfo').style.display = 'none';
+            document.getElementById('detectionResults').style.display = 'none';
+            document.getElementById('imageInput').value = '';
+            document.getElementById('detectBtn').disabled = true;
+            currentImage = null;
+            hideAlerts();
+        }
+
+        // 清空历史记录
+        async function clearHistory() {
+            if (!confirm('确定要清空所有检测历史吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/clear-history', {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    loadHistory();
+                    showSuccess('历史记录已清空');
+                } else {
+                    showError('清空历史记录失败');
+                }
+            } catch (error) {
+                showError('清空历史记录失败: ' + error.message);
+            }
+        }
+
+        // 加载检测历史
+        async function loadHistory() {
+            try {
+                const response = await fetch('/api/history');
+                const history = await response.json();
+                
+                const historyList = document.getElementById('historyList');
+                
+                if (history.length === 0) {
+                    historyList.innerHTML = `
+                        <div style="text-align: center; padding: 40px; color: #718096;">
+                            <i class="fas fa-clock fa-2x" style="margin-bottom: 15px;"></i>
+                            <div>暂无检测历史</div>
+                        </div>
+                    `;
+                } else {
+                    let html = '';
+                    history.reverse().forEach(item => {
+                        const time = new Date(item.timestamp).toLocaleString('zh-CN');
+                        const typeIcon = item.type === 'video' ? 'fa-video' : 'fa-image';
+                        const typeText = item.type === 'video' ? '视频' : '图片';
+                        
+                        html += `
+                            <div class="history-item" onclick="loadHistoryItem('${item.result_image}', ${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                                <img src="/static/results/${item.result_image}" alt="历史结果" class="history-thumbnail">
+                                <div class="history-info">
+                                    <div style="display: flex; align-items: center; gap: 5px;">
+                                        <i class="fas ${typeIcon}"></i>
+                                        <span>${typeText}检测</span>
+                                    </div>
+                                    <div>${item.model_used}</div>
+                                    <div class="history-time">${time}</div>
+                                </div>
+                                <div class="history-count">${item.detection_count}</div>
+                            </div>
+                        `;
+                    });
+                    historyList.innerHTML = html;
+                }
+            } catch (error) {
+                console.error('加载历史记录失败:', error);
+            }
+        }
+
+        // 加载历史项目
+        function loadHistoryItem(resultImage, itemData) {
+            const item = JSON.parse(itemData.replace(/&quot;/g, '"'));
+            
+            // 显示结果图像
+            const container = document.getElementById('imageContainer');
+            container.innerHTML = `
+                <img src="/static/results/${resultImage}" alt="历史检测结果" class="image-preview">
+            `;
+            
+            // 显示检测详情
+            displayResults({
+                detections: item.detections,
+                detection_count: item.detection_count,
+                result_image: resultImage
+            });
+            
+            // 显示图像信息
+            const infoDiv = document.getElementById('imageInfo');
+            infoDiv.style.display = 'block';
+            infoDiv.innerHTML = `
+                <h4><i class="fas fa-info-circle"></i> 历史记录</h4>
+                <p><strong>检测时间:</strong> ${new Date(item.timestamp).toLocaleString('zh-CN')}</p>
+                <p><strong>使用模型:</strong> ${item.model_used}</p>
+                <p><strong>原始图像:</strong> ${item.original_image}</p>
+            `;
+        }
+
+        // 显示加载状态
+        function showLoading(show) {
+            document.getElementById('loadingDiv').style.display = show ? 'block' : 'none';
+        }
+
+        // 显示成功消息
+        function showSuccess(message) {
+            hideAlerts();
+            const alert = document.getElementById('successAlert');
+            alert.textContent = message;
+            alert.style.display = 'block';
+            setTimeout(() => alert.style.display = 'none', 3000);
+        }
+
+        // 显示错误消息
+        function showError(message) {
+            hideAlerts();
+            const alert = document.getElementById('errorAlert');
+            alert.textContent = message;
+            alert.style.display = 'block';
+        }
+
+        // 隐藏所有提示
+        function hideAlerts() {
+            document.getElementById('successAlert').style.display = 'none';
+            document.getElementById('errorAlert').style.display = 'none';
+        }
+
+        // 视频检测提示消息
+        function showVideoSuccess(message) {
+            hideVideoAlerts();
+            const alert = document.getElementById('videoSuccessAlert');
+            alert.textContent = message;
+            alert.style.display = 'block';
+            setTimeout(() => alert.style.display = 'none', 3000);
+        }
+
+        function showVideoError(message) {
+            hideVideoAlerts();
+            const alert = document.getElementById('videoErrorAlert');
+            alert.textContent = message;
+            alert.style.display = 'block';
+        }
+
+        function showVideoLoading(show) {
+            document.getElementById('videoLoadingDiv').style.display = show ? 'block' : 'none';
+        }
+
+        function hideVideoAlerts() {
+            document.getElementById('videoSuccessAlert').style.display = 'none';
+            document.getElementById('videoErrorAlert').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

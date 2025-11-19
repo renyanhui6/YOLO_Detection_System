@@ -1,0 +1,6 @@
+path: C:/Users/hasee/Desktop/erp_ai_front/datasets/WeedCrop.v1i.yolov5pytorch
+train: train/images
+val: valid/images
+
+nc: 2
+names: ['crop', 'weed']
