@@ -1,17 +1,22 @@
+import os
 import pymysql
 import json
 from datetime import datetime
 from typing import Optional
 
+def _load_db_config():
+    """从环境变量读取数据库配置，提供默认值便于本地调试"""
+    return {
+        'user': os.environ.get('DB_USER', 'root'),
+        'host': os.environ.get('DB_HOST', '127.0.0.1'),
+        'password': os.environ.get('DB_PASSWORD', '45987530'),
+        'db': os.environ.get('DB_NAME', 'yolo_database'),
+        'port': int(os.environ.get('DB_PORT', '3306')),
+        'charset': os.environ.get('DB_CHARSET', 'utf8mb4')
+    }
+
 # 数据库连接配置
-DB_CONFIG = {
-    'user': 'root',
-    'host': '127.0.0.1',
-    'password': '45987530',
-    'db': 'yolo_database',
-    'port': 3306,
-    'charset': 'utf8'
-}
+DB_CONFIG = _load_db_config()
 
 def get_connection():
     """获取数据库连接"""

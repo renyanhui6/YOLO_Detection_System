@@ -23,8 +23,8 @@ init_knowledge_table()
 
 # 豆包API配置
 DOUBAO_API_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-# 豆包API密钥[形如xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx]
-DOUBAO_API_KEY = "ad85c717-7661-4d83-bd4d-d07485c02e30"  # 填写你的密钥
+# 优先从环境变量读取豆包API密钥，保持默认值方便本地调试
+DOUBAO_API_KEY = os.getenv("DOUBAO_API_KEY", "ad85c717-7661-4d83-bd4d-d07485c02e30")
 
 def call_doubao_api(message, conversation_history=None, image_data=None):
     """调用豆包API，支持图片输入"""

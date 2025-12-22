@@ -25,3 +25,11 @@ pnpm-debug.log*
 # 安装包不要提交
 *.exe
 *.zip
+
+# Python virtual environments and caches
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd

@@ -1,0 +1,52 @@
+services:
+  mysql:
+    image: mysql:8
+    container_name: yolo-mysql
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+      args:
+        HTTP_PROXY: ${HTTP_PROXY}
+        HTTPS_PROXY: ${HTTPS_PROXY}
+        PIP_INDEX_URL: ${PIP_INDEX_URL}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT}
+        PIP_TORCH_INDEX_URL: ${PIP_TORCH_INDEX_URL}
+    container_name: yolo-app-gpu
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    device_requests:
+      - driver: nvidia
+        count: all
+        capabilities: ["gpu"]
+    ports:
+      - "80:80"
+      - "3000:3000"
+      - "5001:5001"
+      - "5002:5002"
+    volumes:
+      - ./datasets:/app/datasets
+      - ./runs:/app/runs
+      - ./static/uploads:/app/static/uploads
+      - ./static/results:/app/static/results
+
+volumes:
+  mysql_data:
