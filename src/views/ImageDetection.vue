@@ -372,11 +372,11 @@ export default {
       selectedModelFileHandle: null,
       customModelDisplayName: '', // 用于显示的文件名（包含大小信息）
       config: {
-        model: 'yolov8n',
+        model: 'yolov8m',
         customModelPath: '', // 实际的文件路径
-        confidence: 0.5,
-        iou: 0.45,
-        maxDetections: 100
+        confidence: 0.6,
+        iou: 0.5,
+        maxDetections: 200
       }
     }
   },

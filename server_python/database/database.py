@@ -4,6 +4,27 @@ import json
 from datetime import datetime
 from typing import Optional
 
+def _load_env():
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    env_path = os.path.join(root_dir, '.env')
+    if not os.path.isfile(env_path):
+        return
+    try:
+        with open(env_path, 'r', encoding='utf-8') as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception as e:
+        print(f"加载.env失败: {e}")
+
+_load_env()
+
 def _load_db_config():
     """从环境变量读取数据库配置，提供默认值便于本地调试"""
     return {

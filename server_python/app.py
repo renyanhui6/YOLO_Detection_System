@@ -1,9 +1,12 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
+import io
 import json
 import os
 import requests
+import zipfile
 from datetime import datetime
+from xml.etree import ElementTree as ET
 from database.database import (
     query_detection_results, 
     query_knowledge, 
@@ -21,102 +24,126 @@ CORS(app)  # 启用跨域支持
 # 初始化数据库表
 init_knowledge_table()
 
-# 豆包API配置
-DOUBAO_API_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-# 优先从环境变量读取豆包API密钥，保持默认值方便本地调试
-DOUBAO_API_KEY = os.getenv("DOUBAO_API_KEY", "ad85c717-7661-4d83-bd4d-d07485c02e30")
+# DeepSeek API配置
+DEEPSEEK_API_BASE = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com")
+DEEPSEEK_API_URL = f"{DEEPSEEK_API_BASE}/v1/chat/completions"
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_MODELS = {"deepseek-chat", "deepseek-reasoner"}
 
-def call_doubao_api(message, conversation_history=None, image_data=None):
-    """调用豆包API，支持图片输入"""
+def normalize_deepseek_model(model_name: str) -> str:
+    if model_name in DEEPSEEK_MODELS:
+        return model_name
+    return "deepseek-chat"
+
+def decode_text_file(file_bytes):
+    for encoding in ("utf-8", "utf-8-sig", "gbk", "gb18030", "latin-1"):
+        try:
+            return file_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return file_bytes.decode("utf-8", errors="ignore")
+
+def sanitize_text(text):
+    cleaned = []
+    for char in text:
+        if char.isprintable() or char in "\n\r\t":
+            cleaned.append(char)
+        else:
+            cleaned.append(" ")
+    return "".join(cleaned)
+
+def extract_docx_text(file_bytes):
     try:
-        # 构建消息历史
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as zip_file:
+            if "word/document.xml" not in zip_file.namelist():
+                return None
+            xml_data = zip_file.read("word/document.xml")
+
+        root = ET.fromstring(xml_data)
+        texts = []
+        for element in root.iter():
+            if element.tag.endswith("}t") and element.text:
+                texts.append(element.text)
+        return "\n".join(texts).strip()
+    except Exception:
+        return None
+
+def extract_file_text(filename, file_bytes):
+    _, ext = os.path.splitext(filename.lower())
+    if ext in (".md", ".dic"):
+        return decode_text_file(file_bytes).strip()
+    if ext in (".dicx", ".docx"):
+        docx_text = extract_docx_text(file_bytes)
+        if docx_text:
+            return docx_text
+        return decode_text_file(file_bytes).strip()
+    if ext == ".doc":
+        raw_text = decode_text_file(file_bytes)
+        return sanitize_text(raw_text).strip()
+    return None
+
+def call_deepseek_api(message, conversation_history=None, model=None):
+    """调用DeepSeek API"""
+    if not DEEPSEEK_API_KEY:
+        return {
+            "success": False,
+            "error": "未配置DEEPSEEK_API_KEY"
+        }
+
+    try:
         messages = []
 
-        # 添加对话历史（最多保留最近5轮对话）
         if conversation_history:
-            for msg in conversation_history[-10:]:  # 保留最近10条消息
+            for msg in conversation_history[-10:]:
                 messages.append(msg)
 
-        # 构建用户消息
-        if image_data:
-            # 如果有图片，使用豆包的多模态消息格式
-            user_message = {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": message
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": image_data
-                        }
-                    }
-                ]
-            }
-        else:
-            # 纯文本消息
-            user_message = {"role": "user", "content": message}
+        user_message = {"role": "user", "content": message}
 
         messages.append(user_message)
 
-        # 调用API
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {DOUBAO_API_KEY}"
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
         }
 
-        # 豆包模型
-        model_name = "doubao-seed-1-6-250615"
+        model_name = normalize_deepseek_model(model)
 
         data = {
             "model": model_name,
             "messages": messages
         }
-        
-        response = requests.post(DOUBAO_API_URL, headers=headers, json=data, timeout=30)
+
+        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=data, timeout=30)
 
         if response.status_code == 200:
             result = response.json()
             return {
                 "success": True,
                 "content": result["choices"][0]["message"]["content"],
-                "usage": result.get("usage", {})
+                "usage": result.get("usage", {}),
+                "model": model_name
             }
-        elif response.status_code == 401:
+        if response.status_code == 401:
             return {
                 "success": False,
-                "error": "API密钥无效，请检查您的豆包API密钥是否正确"
+                "error": "API密钥无效，请检查DEEPSEEK_API_KEY"
             }
-        elif response.status_code == 402:
-            return {
-                "success": False,
-                "error": "账户余额不足，请前往豆包API控制台充值后再试"
-            }
-        elif response.status_code == 429:
+        if response.status_code == 429:
             return {
                 "success": False,
                 "error": "请求过于频繁，请稍后再试"
             }
-        elif response.status_code == 400:
-            # 可能是视觉模型的特殊错误
+
+        try:
+            error_detail = response.json().get("error", {}).get("message", "")
+        except Exception:
             error_detail = response.text
-            if image_data and "model" in error_detail.lower():
-                return {
-                    "success": False,
-                    "error": "视觉模型暂时不可用，已切换为文本分析模式"
-                }
-            return {
-                "success": False,
-                "error": f"请求参数错误: {error_detail}"
-            }
-        else:
-            return {
-                "success": False,
-                "error": f"API调用失败: {response.status_code} - {response.text}"
-            }
-            
+
+        return {
+            "success": False,
+            "error": f"API调用失败: {response.status_code} - {error_detail}"
+        }
+
     except requests.exceptions.ConnectionError:
         return {
             "success": False,
@@ -132,6 +159,91 @@ def call_doubao_api(message, conversation_history=None, image_data=None):
             "success": False,
             "error": f"调用失败: {str(e)}"
         }
+
+def stream_deepseek_api(message, conversation_history=None, model=None):
+    if not DEEPSEEK_API_KEY:
+        yield {"error": "未配置DEEPSEEK_API_KEY"}
+        return
+
+    try:
+        messages = []
+
+        if conversation_history:
+            for msg in conversation_history[-10:]:
+                messages.append(msg)
+
+        messages.append({"role": "user", "content": message})
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+        }
+
+        model_name = normalize_deepseek_model(model)
+
+        data = {
+            "model": model_name,
+            "messages": messages,
+            "stream": True
+        }
+
+        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=data, timeout=60, stream=True)
+
+        if response.status_code != 200:
+            if response.status_code == 401:
+                yield {"error": "API密钥无效，请检查DEEPSEEK_API_KEY"}
+                return
+            if response.status_code == 429:
+                yield {"error": "请求过于频繁，请稍后再试"}
+                return
+
+            try:
+                error_detail = response.json().get("error", {}).get("message", "")
+            except Exception:
+                error_detail = response.text
+            yield {"error": f"API调用失败: {response.status_code} - {error_detail}"}
+            return
+
+        for line in response.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload == "[DONE]":
+                break
+            try:
+                data_json = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+
+            choices = data_json.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content")
+            if content:
+                yield {"content": content}
+
+    except requests.exceptions.ConnectionError:
+        yield {"error": "网络连接失败，请检查网络连接后重试"}
+    except requests.exceptions.Timeout:
+        yield {"error": "请求超时，请稍后再试"}
+    except Exception as e:
+        yield {"error": f"调用失败: {str(e)}"}
+
+def build_knowledge_fallback(question: str) -> str:
+    data = query_knowledge(search=question) or []
+    if not data:
+        return "未找到相关知识库内容，建议稍后重试或换个问题（本地知识库降级）"
+
+    parts = []
+    for item in data[:3]:
+        title = item.get("title") or "未命名"
+        summary = item.get("summary") or item.get("content") or ""
+        parts.append(f"{title}：{summary}")
+
+    return "；".join(parts) + "（本地知识库降级）"
 
 # API路由
 
@@ -379,12 +491,11 @@ def get_detection_results():
         }), 500
 
 @app.route('/api/chat', methods=['POST'])
-def chat_with_doubao():
-    """智能问答接口 - 调用豆包API，支持图片输入"""
+def chat_with_deepseek():
+    """智能问答接口 - 调用DeepSeek API"""
     try:
-        request_data = request.get_json()
+        request_data = request.get_json() or {}
 
-        # 验证必填字段
         if not request_data.get('message'):
             return jsonify({
                 'success': False,
@@ -393,35 +504,159 @@ def chat_with_doubao():
 
         user_message = request_data['message']
         conversation_history = request_data.get('history', [])
+        model_name = request_data.get('model')
 
-        # 获取图片数据（如果有）
-        image_data = None
-        context = request_data.get('context', {})
+        result = call_deepseek_api(user_message, conversation_history, model=model_name)
 
-        # 检查是否有图片数据
-        if context.get('hasImage') and request_data.get('imageUrl'):
-            image_data = request_data['imageUrl']
-            print(f"收到图片数据，URL长度: {len(image_data) if image_data else 0}")
-
-        # 调用豆包API
-        result = call_doubao_api(user_message, conversation_history, image_data)
-
-        if result['success']:
+        if not result.get('success'):
+            fallback_text = build_knowledge_fallback(user_message)
             return jsonify({
                 'success': True,
-                'response': result['content'],  # 前端期望的字段名
+                'response': fallback_text,
                 'data': {
-                    'message': result['content'],
-                    'usage': result.get('usage', {}),
+                    'message': fallback_text,
+                    'source': 'knowledge_fallback',
                     'timestamp': datetime.now().isoformat(),
-                    'hasImage': bool(image_data)
+                    'model': normalize_deepseek_model(model_name)
                 }
             })
-        else:
+
+        return jsonify({
+            'success': True,
+            'response': result['content'],
+            'data': {
+                'message': result['content'],
+                'usage': result.get('usage', {}),
+                'timestamp': datetime.now().isoformat(),
+                'model': result.get('model')
+            }
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'服务器内部错误: {str(e)}'
+        }), 500
+
+@app.route('/api/chat/stream', methods=['POST'])
+def chat_with_deepseek_stream():
+    """智能问答接口 - 流式输出"""
+    request_data = request.get_json() or {}
+
+    if not request_data.get('message'):
+        return jsonify({
+            'success': False,
+            'message': '消息内容不能为空'
+        }), 400
+
+    user_message = request_data['message']
+    conversation_history = request_data.get('history', [])
+    model_name = request_data.get('model')
+
+    def generate():
+        try:
+            has_content = False
+            for event in stream_deepseek_api(user_message, conversation_history, model=model_name):
+                if event.get("error"):
+                    fallback_text = build_knowledge_fallback(user_message)
+                    payload = {"content": fallback_text}
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
+                content = event.get("content")
+                if content:
+                    has_content = True
+                    payload = {"content": content}
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+            if not has_content:
+                fallback_text = build_knowledge_fallback(user_message)
+                payload = {"content": fallback_text}
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+            yield "data: [DONE]\n\n"
+        except Exception:
+            fallback_text = build_knowledge_fallback(user_message)
+            payload = {"content": fallback_text}
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no"
+    }
+    return Response(stream_with_context(generate()), headers=headers, mimetype="text/event-stream")
+
+@app.route('/api/chat/file', methods=['POST'])
+def chat_with_deepseek_file():
+    """智能问答接口 - 文件输入"""
+    try:
+        if 'file' not in request.files:
             return jsonify({
                 'success': False,
-                'error': result['error']
-            }), 500
+                'message': '未上传文件'
+            }), 400
+
+        upload_file = request.files['file']
+        if not upload_file or upload_file.filename == '':
+            return jsonify({
+                'success': False,
+                'message': '文件为空'
+            }), 400
+
+        file_bytes = upload_file.read()
+        if not file_bytes:
+            return jsonify({
+                'success': False,
+                'message': '文件内容为空'
+            }), 400
+
+        file_text = extract_file_text(upload_file.filename, file_bytes)
+        if not file_text:
+            return jsonify({
+                'success': False,
+                'message': '不支持的文件类型或解析失败'
+            }), 400
+
+        user_message = (request.form.get('message') or '').strip()
+        if not user_message:
+            user_message = '请基于附件内容回答'
+
+        history_raw = request.form.get('history', '[]')
+        try:
+            conversation_history = json.loads(history_raw) if history_raw else []
+        except json.JSONDecodeError:
+            conversation_history = []
+
+        model_name = request.form.get('model')
+
+        combined_message = f"{user_message}\n\n附件内容：\n{file_text}"
+        result = call_deepseek_api(combined_message, conversation_history, model=model_name)
+
+        if not result.get('success'):
+            fallback_text = build_knowledge_fallback(user_message)
+            return jsonify({
+                'success': True,
+                'response': fallback_text,
+                'data': {
+                    'message': fallback_text,
+                    'source': 'knowledge_fallback',
+                    'timestamp': datetime.now().isoformat(),
+                    'model': normalize_deepseek_model(model_name)
+                }
+            })
+
+        return jsonify({
+            'success': True,
+            'response': result['content'],
+            'data': {
+                'message': result['content'],
+                'usage': result.get('usage', {}),
+                'timestamp': datetime.now().isoformat(),
+                'model': result.get('model')
+            }
+        })
 
     except Exception as e:
         return jsonify({
@@ -432,13 +667,34 @@ def chat_with_doubao():
 @app.route('/api/chat/check-connection', methods=['GET'])
 def check_network_connection():
     """检查网络连接状态"""
-    try:
-        # 尝试连接豆包API
-        response = requests.get("https://ark.cn-beijing.volces.com", timeout=5)
+    if not DEEPSEEK_API_KEY:
         return jsonify({
             'success': True,
-            'connected': True,
-            'message': '网络连接正常'
+            'connected': False,
+            'message': '未配置DEEPSEEK_API_KEY'
+        })
+
+    try:
+        headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
+        response = requests.get(f"{DEEPSEEK_API_BASE}/v1/models", headers=headers, timeout=5)
+
+        if response.status_code == 200:
+            return jsonify({
+                'success': True,
+                'connected': True,
+                'message': '网络连接正常'
+            })
+        if response.status_code == 401:
+            return jsonify({
+                'success': True,
+                'connected': False,
+                'message': 'API密钥无效'
+            })
+
+        return jsonify({
+            'success': True,
+            'connected': False,
+            'message': f'连接检查失败: {response.status_code}'
         })
     except requests.exceptions.ConnectionError:
         return jsonify({

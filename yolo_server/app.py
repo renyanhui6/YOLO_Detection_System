@@ -6,6 +6,7 @@ import base64
 import io
 from PIL import Image
 import os
+import json
 import tempfile
 import uuid
 import time
@@ -21,6 +22,32 @@ CORS(app)
 
 # 全局变量存储模型
 model = None
+MODEL_CACHE = {}
+MODEL_CACHE_ORDER = []
+MODEL_CACHE_MAX = 3
+
+def clamp_float(value, min_value, max_value, default):
+    try:
+        val = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(min_value, min(max_value, val))
+
+def clamp_int(value, min_value, max_value, default):
+    try:
+        val = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(min_value, min(max_value, val))
+
+def cache_model(cache_key, model_obj):
+    if cache_key in MODEL_CACHE:
+        return
+    MODEL_CACHE[cache_key] = model_obj
+    MODEL_CACHE_ORDER.append(cache_key)
+    if len(MODEL_CACHE_ORDER) > MODEL_CACHE_MAX:
+        oldest = MODEL_CACHE_ORDER.pop(0)
+        MODEL_CACHE.pop(oldest, None)
 
 def load_model():
     """加载YOLO模型"""
@@ -28,6 +55,7 @@ def load_model():
     try:
         # 尝试加载YOLOv8n模型
         model = YOLO('yolov8n.pt')
+        cache_model('yolov8n', model)
         print("YOLO模型加载成功")
         return True
     except Exception as e:
@@ -92,6 +120,34 @@ def resolve_model_path(model_name):
     
     # 返回原始路径，让YOLO尝试加载（可能会失败）
     return model_name
+
+def load_model_by_name(model_name):
+    name = model_name or 'yolov8n'
+
+    if name == 'yolov8n' and model is not None:
+        return model
+
+    if name.endswith('.pt') or '/' in name or '\\' in name:
+        resolved = resolve_model_path(name)
+        if not os.path.exists(resolved):
+            print(f"模型文件不存在: {resolved}")
+            return None
+        cache_key = resolved
+    else:
+        resolved = f"{name}.pt"
+        cache_key = name
+
+    cached = MODEL_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        loaded = YOLO(resolved)
+        cache_model(cache_key, loaded)
+        return loaded
+    except Exception as e:
+        print(f"加载模型失败: {e}")
+        return None
 
 
 
@@ -195,28 +251,13 @@ def detect_image():
         # 获取配置参数
         config = data.get('config', {})
         model_name = config.get('model', 'yolov8n')
-        confidence = config.get('confidence', 0.5)
-        iou_threshold = config.get('iou', 0.45)
-        max_detections = config.get('max_detections', 100)
+        confidence = clamp_float(config.get('confidence', 0.5), 0.05, 0.95, 0.5)
+        iou_threshold = clamp_float(config.get('iou', 0.45), 0.05, 0.95, 0.45)
+        max_detections = clamp_int(config.get('max_detections', 200), 1, 1000, 200)
         
-        # 检查模型是否需要重新加载
-        current_model = model
-        if model_name != 'yolov8n' or model is None:
-            try:
-                if model_name.endswith('.pt') or '/' in model_name or '\\' in model_name:
-                    # 自定义模型路径 - 使用智能路径解析
-                    resolved_path = resolve_model_path(model_name)
-                    print(f"尝试加载模型: {model_name} -> {resolved_path}")
-                    current_model = YOLO(resolved_path)
-                else:
-                    # 预定义模型
-                    current_model = YOLO(f'{model_name}.pt')
-            except Exception as e:
-                print(f"加载模型失败: {e}")
-                current_model = model  # 使用默认模型
-        
+        current_model = load_model_by_name(model_name)
         if current_model is None:
-            return jsonify({'success': False, 'error': '模型未加载'}), 500
+            return jsonify({'success': False, 'error': '模型加载失败，请检查模型名称或路径'}), 500
         
         # 转换base64为图像
         image = base64_to_image(data['image'])
@@ -311,35 +352,20 @@ def detect_video():
         # 获取配置参数
         config_str = request.form.get('config', '{}')
         try:
-            config = eval(config_str) if config_str != '{}' else {}
-        except:
+            config = json.loads(config_str) if config_str else {}
+        except json.JSONDecodeError:
             config = {}
         
         model_name = config.get('model', 'yolov8n')
-        confidence = config.get('confidence', 0.5)
-        iou_threshold = config.get('iou', 0.45)
-        max_detections = config.get('max_detections', 100)
-        sampling_rate = config.get('sampling_rate', 2.0)
-        frame_skip = config.get('frame_skip', 15)
+        confidence = clamp_float(config.get('confidence', 0.5), 0.05, 0.95, 0.5)
+        iou_threshold = clamp_float(config.get('iou', 0.45), 0.05, 0.95, 0.45)
+        max_detections = clamp_int(config.get('max_detections', 200), 1, 1000, 200)
+        sampling_rate = clamp_float(config.get('sampling_rate', 5.0), 0.5, 30.0, 5.0)
+        frame_skip = clamp_int(config.get('frame_skip', 5), 1, 100, 5)
         
-        # 检查模型是否需要重新加载
-        current_model = model
-        if model_name != 'yolov8n' or model is None:
-            try:
-                if model_name.endswith('.pt') or '/' in model_name or '\\' in model_name:
-                    # 自定义模型路径 - 使用智能路径解析
-                    resolved_path = resolve_model_path(model_name)
-                    print(f"尝试加载模型: {model_name} -> {resolved_path}")
-                    current_model = YOLO(resolved_path)
-                else:
-                    # 预定义模型
-                    current_model = YOLO(f'{model_name}.pt')
-            except Exception as e:
-                print(f"加载模型失败: {e}")
-                current_model = model  # 使用默认模型
-        
+        current_model = load_model_by_name(model_name)
         if current_model is None:
-            return jsonify({'success': False, 'error': '模型未加载'}), 500
+            return jsonify({'success': False, 'error': '模型加载失败，请检查模型名称或路径'}), 500
         
         # 保存临时文件
         temp_dir = tempfile.gettempdir()
@@ -349,19 +375,23 @@ def detect_video():
         try:
             video_file.save(temp_path)
             
-            # 提取视频帧，应用采样频率
-            # 计算基于视频时长和采样频率的最大帧数
-            fps = cv2.VideoCapture(temp_path).get(cv2.CAP_PROP_FPS)
-            total_frames = int(cv2.VideoCapture(temp_path).get(cv2.CAP_PROP_FRAME_COUNT))
-            video_duration = total_frames / fps if fps > 0 else 30
+            # 提取视频帧，应用采样频率与跳帧间隔
+            cap = cv2.VideoCapture(temp_path)
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
 
-            # 基于采样频率计算目标帧数，同时设置合理的上限
-            target_frames = min(int(sampling_rate * video_duration), 300)  # 最多300帧
-            max_frames = max(target_frames, 30)  # 至少30帧
+            video_duration = total_frames / fps if fps and fps > 0 else 0
+            target_interval = max(1, int(round(fps / sampling_rate))) if fps and fps > 0 else frame_skip
+            interval = max(1, min(frame_skip, target_interval))
 
-            print(f"视频时长: {video_duration:.2f}秒, 采样频率: {sampling_rate}, 目标帧数: {target_frames}, 最大帧数: {max_frames}")
+            desired_frames = int(video_duration * sampling_rate) if video_duration > 0 else 0
+            max_frames = min(total_frames, max(desired_frames, 60))
+            max_frames = min(max_frames, 600)
 
-            frames, fps, frame_positions = extract_video_frames(temp_path, max_frames=max_frames, interval=frame_skip)
+            print(f"视频时长: {video_duration:.2f}秒, 采样频率: {sampling_rate}, 跳帧间隔: {interval}, 最大帧数: {max_frames}")
+
+            frames, fps, frame_positions = extract_video_frames(temp_path, max_frames=max_frames, interval=interval)
             
             if not frames:
                 return jsonify({'success': False, 'error': '无法提取视频帧'}), 400

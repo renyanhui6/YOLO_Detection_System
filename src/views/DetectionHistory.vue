@@ -127,7 +127,6 @@
                 <div class="detail-toolbar">
                   <button class="tool-btn" @click="openLightbox(selectedRecord.previewImage || selectedRecord.thumbnail)">🔍 放大预览</button>
                   <button class="tool-btn" v-if="selectedRecord.previewImage || selectedRecord.thumbnail" @click="downloadImage(selectedRecord.previewImage || selectedRecord.thumbnail, selectedRecord.filename)">⬇ 下载标注图</button>
-                  <button class="tool-btn ask-btn" v-if="selectedRecord.previewImage || selectedRecord.thumbnail" @click="goToQA(selectedRecord.previewImage || selectedRecord.thumbnail)">❓ 去提问</button>
                 </div>
               </template>
               
@@ -426,42 +425,6 @@ export default {
         document.body.removeChild(a)
       } catch (e) {
         console.error('下载失败', e)
-      }
-    },
-
-    // 跳转到智能问答页面
-    goToQA(imageUrl) {
-      if (!imageUrl) {
-        alert('没有可用的图片进行提问')
-        return
-      }
-
-      try {
-        // 将图片数据存储到sessionStorage中
-        const qaData = {
-          image: imageUrl,
-          question: '解释一下这是什么',
-          source: 'detection-history',
-          timestamp: Date.now()
-        }
-
-        sessionStorage.setItem('qa_image_data', JSON.stringify(qaData))
-
-        // 跳转到智能问答页面，带上标识参数
-        this.$router.push({
-          name: 'IntelligentQA',
-          query: {
-            from: 'detection',
-            auto_ask: 'true'
-          }
-        })
-
-        // 关闭详情弹窗
-        this.closeDetails()
-
-      } catch (error) {
-        console.error('跳转到问答页面失败:', error)
-        alert('跳转失败，请重试')
       }
     }
   }
@@ -838,20 +801,6 @@ export default {
 
 .tool-btn:hover {
   background: #e9ecef;
-}
-
-.ask-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-  color: white !important;
-  border: none !important;
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-}
-
-.ask-btn:hover {
-  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%) !important;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
 .video-detail {
